@@ -43,6 +43,7 @@ $Sites = Get-content -Path "C:\\temp\\SiteList_DeleteItems.txt"
 $batchSize = 50  # Number of items to restore per API call
 $DaysToGoBack = -2  # Number of days to look back for deleted items
 $DeletedByName = "MOD Administrator"  # Filter by user who deleted the items
+$RenameExistingItems = $true  # Rename items if they already exist in the destination
 ################################################################
 
 
@@ -91,7 +92,7 @@ foreach ($SiteURL in $Sites) {
             }
         }
 
-        $body += "]}"
+        $body += "],""bRenameExistingItems"":" + $RenameExistingItems.ToString().ToLower() + "}"
         Write-Info "Performing API Call to Restore items from RecycleBin..."
 
         try {
