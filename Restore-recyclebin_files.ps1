@@ -36,10 +36,13 @@
 
 # Variables for processing
 #################################################################
-$appID = ""   #Example:"1e488dc4-1977-48ef-8d4d-9856f4e04536"
-$thumbprint = "" #Example: "5EAD7303A5C7E27DB4245878AD554642940BA082"
-$tenant = ""    #Example:"9cfc42cb-51da-4055-87e9-b20a170b6ba3"
+$appID = "1e488dc4-1977-48ef-8d4d-9856f4e04536"  
+$thumbprint = "5EAD7303A5C7E27DB4245878AD554642940BA082"
+$tenant = "9cfc42cb-51da-4055-87e9-b20a170b6ba3"
 $Sites = Get-content -Path "C:\\temp\\SiteList_DeleteItems.txt"
+$batchSize = 50  # Number of items to restore per API call
+$DaysToGoBack = -2  # Number of days to look back for deleted items
+$DeletedByName = "MOD Administrator"  # Filter by user who deleted the items
 ################################################################
 
 
@@ -58,19 +61,20 @@ function Write-Info {
 foreach ($SiteURL in $Sites) {
     Write-Info "Connecting to site: $SiteURL"
     Connect-PnPOnline -Url $SiteURL -ClientId $appID -Tenant $tenant -Thumbprint $thumbprint
-    $restoreSet = Get-PnPRecycleBinItem | Where-Object { $_.DeletedDate -gt (Get-Date).AddDays(-2) -and $_.DeletedByName -eq "MOD Administrator" }
+    $restoreSet = Get-PnPRecycleBinItem | Where-Object { $_.DeletedDate -gt (Get-Date).AddDays($DaysToGoBack) -and $_.DeletedByName -eq $DeletedByName }
     $restoreSetCount = $restoreSet.Count
 
-    # Batch restore up to 200 at a time
+    # Batch restore using configured batch size
     $apiCall = $SiteURL + "/_api/site/RecycleBin/RestoreByIds"
     $start = 0
     $leftToProcess = $restoreSetCount - $start
 
     while ($leftToProcess -gt 0) {
-        if ($leftToProcess -lt 200) {
+        if ($leftToProcess -lt $batchSize) {
             $numToProcess = $leftToProcess
-        } else {
-            $numToProcess = 200
+        }
+        else {
+            $numToProcess = $batchSize
         }
 
         Write-Info "Building statement to restore the following $numToProcess files"
@@ -92,22 +96,24 @@ foreach ($SiteURL in $Sites) {
 
         try {
             $response = Invoke-PnPSPRestMethod -Method Post -Url $apiCall -Content $body
-            if ($response.StatusCode -eq 429) {  # Throttling response
+            if ($response.StatusCode -eq 429) {
+                # Throttling response
                 $retryAfter = [int]$response.Headers["Retry-After"]
                 Write-Info "Throttled. Retrying after $retryAfter seconds."
                 Start-Sleep -Seconds $retryAfter
                 continue
             }
             Write-Info "API Call successful. Status Code: $($response.StatusCode)"
-        } catch {
+        }
+        catch {
             Write-Info "Unable to Restore: $_"
         }
 
-        # Update progress
-        Write-Info "$start items processed, $(($restoreSetCount - $leftToProcess)) items left to process."
-
         # Increment start and update leftToProcess
-        $start += 200
+        $start += $numToProcess
         $leftToProcess = $restoreSetCount - $start
+
+        # Update progress
+        Write-Info "$start items processed, $leftToProcess items left to process."
     }
 }
